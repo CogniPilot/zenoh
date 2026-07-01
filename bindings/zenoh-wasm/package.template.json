@@ -1,0 +1,36 @@
+{
+  "name": "__NPM_PACKAGE_NAME__",
+  "version": "__NPM_PACKAGE_VERSION__",
+  "description": "Browser WebAssembly bindings for Zenoh over WebSocket transports.",
+  "license": "EPL-2.0 OR Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./zenoh_wasm.js",
+  "module": "./zenoh_wasm.js",
+  "types": "./zenoh_wasm.d.ts",
+  "exports": {
+    ".": {
+      "types": "./zenoh_wasm.d.ts",
+      "default": "./zenoh_wasm.js"
+    }
+  },
+  "files": [
+    "zenoh_wasm.js",
+    "zenoh_wasm_bg.wasm",
+    "zenoh_wasm.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "__REPOSITORY_URL__",
+    "directory": "bindings/zenoh-wasm"
+  },
+  "keywords": [
+    "zenoh",
+    "wasm",
+    "webassembly",
+    "websocket",
+    "pubsub"
+  ]
+}

@@ -1,0 +1,87 @@
+#
+# Copyright (c) 2026 ZettaScale Technology
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+# which is available at https://www.apache.org/licenses/LICENSE-2.0.
+#
+# SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
+#
+name: Publish zenoh-wasm npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_name:
+        description: "npm package name; falls back to vars.NPM_PACKAGE_NAME or zenoh-wasm"
+        required: false
+        type: string
+        default: ""
+      version:
+        description: "npm package version"
+        required: true
+        type: string
+        default: "1.9.0-wasm.0"
+      dist_tag:
+        description: "npm dist-tag"
+        required: true
+        type: string
+        default: "next"
+      publish:
+        description: "publish to npm after packing"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      NPM_PACKAGE_NAME: ${{ inputs.package_name || vars.NPM_PACKAGE_NAME || 'zenoh-wasm' }}
+      NPM_PACKAGE_VERSION: ${{ inputs.version }}
+      NPM_REPOSITORY_URL: ${{ vars.NPM_REPOSITORY_URL || format('git+{0}/{1}.git', github.server_url, github.repository) }}
+      NPM_TAG: ${{ inputs.dist_tag }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Clone this repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Update Stable Rust toolchain
+        run: rustup update stable
+
+      - name: Install wasm target
+        run: rustup target add wasm32-unknown-unknown --toolchain stable
+
+      - name: Setup rust-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Build npm package
+        run: node bindings/zenoh-wasm/scripts/build-package.mjs
+
+      - name: Pack npm package
+        run: npm pack bindings/zenoh-wasm/pkg --pack-destination /tmp
+
+      - name: Publish npm package
+        if: ${{ inputs.publish }}
+        run: |
+          access=()
+          if [[ "$NPM_PACKAGE_NAME" == @* ]]; then
+            access=(--access public)
+          fi
+          npm publish bindings/zenoh-wasm/pkg --tag "$NPM_TAG" "${access[@]}"

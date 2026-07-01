@@ -13,6 +13,7 @@
 #
 [workspace]
 exclude = [
+  "bindings/zenoh-wasm",
   "ci/nostd-check",
   "ci/valgrind-check",
   "ci/zenoh-1-75",

@@ -28,6 +28,8 @@
 
 cargo-timing*.html
 
+bindings/zenoh-wasm/pkg/
+
 ci/valgrind-check/*.log
 
 # Code coverage reports
