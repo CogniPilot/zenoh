@@ -102,7 +102,18 @@ jobs:
             exit 1
           fi
 
+      - name: Check whether package version exists
+        id: npm_version
+        shell: bash
+        run: |
+          if npm view "${NPM_PACKAGE_NAME}@${NPM_PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish npm package
+        if: ${{ steps.npm_version.outputs.exists != 'true' }}
         shell: bash
         run: |
           access=()
@@ -110,3 +121,7 @@ jobs:
             access=(--access public)
           fi
           npm publish bindings/zenoh-wasm/pkg --tag "$NPM_TAG" --provenance "${access[@]}"
+
+      - name: Ensure npm dist-tag
+        if: ${{ steps.npm_version.outputs.exists == 'true' }}
+        run: npm dist-tag add "${NPM_PACKAGE_NAME}@${NPM_PACKAGE_VERSION}" "$NPM_TAG"
