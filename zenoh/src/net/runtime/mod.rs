@@ -18,6 +18,10 @@
 //!
 //! [Click here for Zenoh's documentation](https://docs.rs/zenoh/latest/zenoh)
 mod adminspace;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+pub mod orchestrator;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[path = "orchestrator_wasm.rs"]
 pub mod orchestrator;
 mod region;
 
@@ -73,6 +77,15 @@ use zenoh_transport::{
     multicast::TransportMulticast, unicast::TransportUnicast, TransportEventHandler,
     TransportManager, TransportMulticastEventHandler, TransportPeer, TransportPeerEventHandler,
 };
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+fn wasm_system_time_clock() -> uhlc::NTP64 {
+    uhlc::NTP64::from(
+        web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
+            .unwrap(),
+    )
+}
 
 use self::orchestrator::StartConditions;
 use super::{
@@ -175,6 +188,7 @@ pub(crate) struct RuntimeState {
     #[cfg(feature = "plugins")]
     plugins_manager: Mutex<PluginsManager>,
     start_conditions: Arc<StartConditions>,
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pending_connections: tokio::sync::Mutex<HashSet<ZenohIdProto>>,
     namespace: Option<OwnedNonWildKeyExpr>,
     #[cfg(feature = "stats")]
@@ -462,6 +476,7 @@ impl RuntimeState {
 
     /// Spawns a task within runtime.
     /// Upon runtime close the task will be automatically aborted.
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     fn spawn_abortable<F, T>(&self, future: F) -> JoinHandle<Option<T>>
     where
         F: Future<Output = T> + Send + 'static,
@@ -487,10 +502,12 @@ impl RuntimeState {
         &self.start_conditions
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     async fn insert_pending_connection(&self, zid: ZenohIdProto) -> bool {
         self.pending_connections.lock().await.insert(zid)
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     async fn remove_pending_connection(&self, zid: &ZenohIdProto) -> bool {
         self.pending_connections.lock().await.remove(zid)
     }
@@ -694,8 +711,12 @@ impl RuntimeBuilder {
         #[cfg(feature = "stats")]
         let stats = zenoh_stats::StatsRegistry::new(zid, whatami, &*crate::LONG_VERSION);
 
-        let hlc = (*unwrap_or_default!(config.timestamping().enabled().get(whatami)))
-            .then(|| Arc::new(HLCBuilder::new().with_id(uhlc::ID::from(&zid)).build()));
+        let hlc = (*unwrap_or_default!(config.timestamping().enabled().get(whatami))).then(|| {
+            let builder = HLCBuilder::new().with_id(uhlc::ID::from(&zid));
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            let builder = builder.with_clock(wasm_system_time_clock);
+            Arc::new(builder.build())
+        });
 
         let mut gateway_builder = GatewayBuilder::new(&config);
 
@@ -771,6 +792,7 @@ impl RuntimeBuilder {
                 #[cfg(feature = "plugins")]
                 plugins_manager: Mutex::new(plugins_manager),
                 start_conditions: Arc::new(StartConditions::default()),
+                #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
                 pending_connections: tokio::sync::Mutex::new(HashSet::new()),
                 namespace,
                 #[cfg(feature = "stats")]
@@ -890,6 +912,7 @@ impl Runtime {
 
     /// Spawns a task within runtime.
     /// Upon runtime close the task will be automatically aborted.
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) fn spawn_abortable<F, T>(&self, future: F) -> JoinHandle<Option<T>>
     where
         F: Future<Output = T> + Send + 'static,
@@ -898,6 +921,7 @@ impl Runtime {
         self.state.spawn_abortable(future)
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) fn router(&self) -> Arc<Gateway> {
         self.state.router()
     }
@@ -940,10 +964,12 @@ impl Runtime {
         self.state.start_conditions()
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) async fn insert_pending_connection(&self, zid: ZenohIdProto) -> bool {
         self.state.insert_pending_connection(zid).await
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) async fn remove_pending_connection(&self, zid: &ZenohIdProto) -> bool {
         self.state.remove_pending_connection(zid).await
     }

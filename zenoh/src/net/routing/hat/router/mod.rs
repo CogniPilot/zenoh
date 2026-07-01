@@ -463,6 +463,7 @@ impl HatBaseTrait for Hat {
         self.net().dot()
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     fn update_from_config(
         &mut self,
         tables_ref: &Arc<TablesLock>,
@@ -487,6 +488,7 @@ impl HatBaseTrait for Hat {
         Ok(())
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     fn links_info(&self) -> HashMap<ZenohIdProto, crate::net::protocol::linkstate::LinkInfo> {
         if let Some(net) = &self.routers_net {
             net.links_info()

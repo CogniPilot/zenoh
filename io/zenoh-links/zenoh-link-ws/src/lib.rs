@@ -17,17 +17,28 @@
 //! This crate is intended for Zenoh's internal use.
 //!
 //! [Click here for Zenoh's documentation](https://docs.rs/zenoh/latest/zenoh)
-use std::{net::SocketAddr, str::FromStr};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::net::SocketAddr;
+use std::str::FromStr;
 
 use async_trait::async_trait;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use url::Url;
 use zenoh_core::zconfigurable;
 use zenoh_link_commons::LocatorInspector;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use zenoh_protocol::core::endpoint::Address;
 use zenoh_protocol::{
-    core::{endpoint::Address, Locator, Metadata, Reliability},
+    core::{Locator, Metadata, Reliability},
     transport::BatchSize,
 };
-use zenoh_result::{bail, ZResult};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use zenoh_result::bail;
+use zenoh_result::ZResult;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+mod unicast;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[path = "unicast_wasm.rs"]
 mod unicast;
 pub use unicast::*;
 
@@ -76,6 +87,7 @@ zconfigurable! {
     static ref TCP_ACCEPT_THROTTLE_TIME: u64 = 100_000;
 }
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub async fn get_ws_addr(address: Address<'_>) -> ZResult<SocketAddr> {
     match tokio::net::lookup_host(address.as_str()).await?.next() {
         Some(addr) => Ok(addr),
@@ -83,6 +95,7 @@ pub async fn get_ws_addr(address: Address<'_>) -> ZResult<SocketAddr> {
     }
 }
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub async fn get_ws_url(address: Address<'_>) -> ZResult<Url> {
     match Url::parse(&format!(
         "{}://{}",

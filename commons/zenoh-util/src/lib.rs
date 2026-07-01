@@ -20,12 +20,18 @@
 use lazy_static::lazy_static;
 
 pub mod ffi;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod lib_loader;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+mod lib_loader_wasm;
 pub mod lib_search_dirs;
 pub mod net;
 pub mod time_range;
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub use lib_loader::*;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub use lib_loader_wasm::*;
 pub mod timer;
 pub use timer::*;
 pub mod log;
@@ -42,16 +48,23 @@ pub fn zenoh_home() -> &'static std::path::Path {
     use std::path::PathBuf;
     lazy_static! {
         static ref ROOT: PathBuf = {
-            if let Some(dir) = std::env::var_os(ZENOH_HOME_ENV_VAR) {
-                PathBuf::from(dir)
-            } else {
-                match home::home_dir() {
-                    Some(mut dir) => {
-                        dir.push(DEFAULT_ZENOH_HOME_DIRNAME);
-                        dir
+            #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+            {
+                if let Some(dir) = std::env::var_os(ZENOH_HOME_ENV_VAR) {
+                    PathBuf::from(dir)
+                } else {
+                    match home::home_dir() {
+                        Some(mut dir) => {
+                            dir.push(DEFAULT_ZENOH_HOME_DIRNAME);
+                            dir
+                        }
+                        None => PathBuf::from(DEFAULT_ZENOH_HOME_DIRNAME),
                     }
-                    None => PathBuf::from(DEFAULT_ZENOH_HOME_DIRNAME),
                 }
+            }
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            {
+                PathBuf::from(DEFAULT_ZENOH_HOME_DIRNAME)
             }
         };
     }

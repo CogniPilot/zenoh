@@ -30,7 +30,7 @@ version = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["ahash/default"]
+std = ["ahash/compile-time-rng", "ahash/std"]
 test = []
 
 [dependencies]

@@ -14,7 +14,7 @@
 mod demux;
 mod mux;
 
-use std::any::Any;
+use std::{any::Any, future::Future, pin::Pin};
 
 pub use demux::*;
 pub use mux::*;
@@ -44,6 +44,10 @@ pub trait Primitives: Send + Sync {
     fn send_response_final(&self, msg: &mut ResponseFinal);
 
     fn send_close(&self);
+
+    fn send_close_async(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move { self.send_close() })
+    }
 
     #[allow(dead_code)]
     fn as_any(&self) -> &dyn Any;

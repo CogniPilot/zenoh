@@ -12,12 +12,16 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
+#[cfg(any(
+    not(all(target_family = "wasm", target_os = "unknown")),
+    feature = "internal"
+))]
+use std::future::Ready;
 #[cfg(feature = "shared-memory")]
 use std::sync::Arc;
-use std::{
-    fmt,
-    future::{IntoFuture, Ready},
-};
+use std::{fmt, future::IntoFuture};
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::{future::Future, pin::Pin};
 
 use zenoh_core::{Resolvable, Wait};
 #[cfg(feature = "internal")]
@@ -124,10 +128,37 @@ where
     <TryIntoConfig as std::convert::TryInto<crate::config::Config>>::Error: std::fmt::Debug,
 {
     type Output = <Self as Resolvable>::To;
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     type IntoFuture = Ready<<Self as Resolvable>::To>;
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    type IntoFuture = Pin<Box<dyn Future<Output = <Self as Resolvable>::To> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {
-        std::future::ready(self.wait())
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            std::future::ready(self.wait())
+        }
+
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            Box::pin(async move {
+                let config: crate::config::Config = self
+                    .config
+                    .try_into()
+                    .map_err(|e| zerror!("Invalid Zenoh configuration {:?}", &e))?;
+                let handle = zenoh_runtime::ZRuntime::Application.spawn(async move {
+                    Session::new(
+                        config,
+                        #[cfg(feature = "shared-memory")]
+                        self.shm_clients,
+                    )
+                    .await
+                });
+                handle
+                    .await
+                    .map_err(|e| zerror!("Zenoh open task failed: {}", e))?
+            })
+        }
     }
 }
 

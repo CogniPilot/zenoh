@@ -10,6 +10,10 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+mod dynamic_plugin;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[path = "manager/dynamic_plugin_wasm.rs"]
 mod dynamic_plugin;
 mod static_plugin;
 

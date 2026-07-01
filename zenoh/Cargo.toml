@@ -85,7 +85,7 @@ unstable = [
 uring = ["zenoh-transport/uring"]
 
 [dependencies]
-ahash = { workspace = true, default-features = true }
+ahash = { workspace = true, features = ["compile-time-rng", "std"] }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
@@ -104,9 +104,8 @@ phf = { workspace = true }
 rand = { workspace = true, features = ["default"] }
 serde = { workspace = true, features = ["default"] }
 serde_json = { workspace = true }
-socket2 = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
-tokio-util = { workspace = true }
+tokio-util = { workspace = true, default-features = false }
 tracing = { workspace = true }
 uhlc = { workspace = true, features = ["default"] }
 vec_map = { workspace = true }
@@ -129,6 +128,13 @@ zenoh-sync = { workspace = true }
 zenoh-task = { workspace = true }
 zenoh-transport = { workspace = true }
 zenoh-util = { workspace = true }
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+socket2 = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+web-time = { workspace = true }
 
 [dev-dependencies]
 libc = { workspace = true }

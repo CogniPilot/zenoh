@@ -24,6 +24,7 @@ mod listener;
 mod multicast;
 #[cfg(feature = "quic")]
 pub mod quic;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub mod tcp;
 #[cfg(feature = "tls")]
 pub mod tls;

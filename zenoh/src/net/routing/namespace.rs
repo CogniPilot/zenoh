@@ -121,6 +121,12 @@ impl Primitives for Namespace {
         self.primitives.send_close();
     }
 
+    fn send_close_async(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(async move { self.primitives.send_close_async().await })
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

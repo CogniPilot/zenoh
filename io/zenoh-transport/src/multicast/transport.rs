@@ -225,7 +225,11 @@ impl TransportMulticastInner {
                         session: false,
                     }
                     .into();
-                    pipeline.push_transport_message(msg, Priority::Background);
+                    match pipeline.push_transport_message(msg, Priority::Background) {
+                        Ok(true) => {}
+                        Ok(false) => tracing::debug!("Multicast close message was not pushed"),
+                        Err(e) => tracing::debug!("Failed to push multicast close message: {}", e),
+                    }
                 }
             }
         }

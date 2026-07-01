@@ -417,7 +417,11 @@ impl TransportUnicastTrait for TransportUnicastUniversal {
             }
             .into();
 
-            p.push_transport_message(msg, Priority::Background);
+            match p.push_transport_message(msg, Priority::Background) {
+                Ok(true) => {}
+                Ok(false) => tracing::debug!("Unicast close message was not pushed"),
+                Err(e) => tracing::debug!("Failed to push unicast close message: {}", e),
+            }
         }
         // Terminate and clean up the transport
         self.delete().await

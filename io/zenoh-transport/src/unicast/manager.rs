@@ -285,6 +285,10 @@ impl TransportManagerBuilderUnicast {
         if self.is_qos && self.is_lowlatency {
             bail!("'qos' and 'lowlatency' options are incompatible");
         }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        if self.is_lowlatency {
+            bail!("'lowlatency' transport is not supported on wasm32-unknown-unknown");
+        }
 
         let config = TransportManagerConfigUnicast {
             lease: self.lease,

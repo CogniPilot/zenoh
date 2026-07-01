@@ -20,7 +20,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use event_listener::{Event as EventLib, Listener};
+use event_listener::Event as EventLib;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use event_listener::Listener;
 
 // Error types
 const WAIT_ERR_STR: &str = "No notifier available";
@@ -252,6 +254,7 @@ impl Waiter {
 
     /// Waits for the condition to be notified
     #[inline]
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub fn wait(&self) -> Result<(), WaitError> {
         // Wait until the flag is set.
         loop {
@@ -279,8 +282,19 @@ impl Waiter {
         Ok(())
     }
 
+    /// Waits for the condition to be notified
+    #[inline]
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    pub fn wait(&self) -> Result<(), WaitError> {
+        match self.0.check() {
+            EventCheck::Ok => Ok(()),
+            EventCheck::Unset | EventCheck::Err => Err(WaitError),
+        }
+    }
+
     /// Waits for the condition to be notified or returns an error when the deadline is reached
     #[inline]
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub fn wait_deadline(&self, deadline: Instant) -> Result<(), WaitDeadlineError> {
         // Wait until the flag is set.
         loop {
@@ -310,8 +324,20 @@ impl Waiter {
         Ok(())
     }
 
+    /// Waits for the condition to be notified or returns an error when the deadline is reached
+    #[inline]
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    pub fn wait_deadline(&self, _deadline: Instant) -> Result<(), WaitDeadlineError> {
+        match self.0.check() {
+            EventCheck::Ok => Ok(()),
+            EventCheck::Unset => Err(WaitDeadlineError::WaitError),
+            EventCheck::Err => Err(WaitDeadlineError::WaitError),
+        }
+    }
+
     /// Waits for the condition to be notified or returns an error when the timeout is expired
     #[inline]
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub fn wait_timeout(&self, timeout: Duration) -> Result<(), WaitTimeoutError> {
         // Wait until the flag is set.
         loop {
@@ -339,6 +365,17 @@ impl Waiter {
         }
 
         Ok(())
+    }
+
+    /// Waits for the condition to be notified or returns an error when the timeout is expired
+    #[inline]
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    pub fn wait_timeout(&self, _timeout: Duration) -> Result<(), WaitTimeoutError> {
+        match self.0.check() {
+            EventCheck::Ok => Ok(()),
+            EventCheck::Unset => Err(WaitTimeoutError::WaitError),
+            EventCheck::Err => Err(WaitTimeoutError::WaitError),
+        }
     }
 }
 

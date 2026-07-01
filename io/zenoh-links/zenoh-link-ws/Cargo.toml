@@ -36,6 +36,13 @@ uring = []
 
 [dependencies]
 async-trait = { workspace = true }
+tracing = { workspace = true }
+zenoh-core = { workspace = true }
+zenoh-link-commons = { workspace = true }
+zenoh-protocol = { workspace = true }
+zenoh-result = { workspace = true }
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
 futures-util = { workspace = true, features = ["sink", "std"] }
 tokio = { workspace = true, features = [
   "io-std",
@@ -46,11 +53,20 @@ tokio = { workspace = true, features = [
 ] }
 tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true, features = ["rt"] }
-tracing = { workspace = true }
 url = { workspace = true }
-zenoh-core = { workspace = true }
-zenoh-link-commons = { workspace = true }
-zenoh-protocol = { workspace = true }
-zenoh-result = { workspace = true }
 zenoh-runtime = { workspace = true }
 zenoh-util = { workspace = true }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+flume = { workspace = true }
+js-sys = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = [
+  "BinaryType",
+  "CloseEvent",
+  "ErrorEvent",
+  "Event",
+  "MessageEvent",
+  "WebSocket",
+] }

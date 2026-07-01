@@ -21,16 +21,20 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex, RwLock, RwLockReadGuard,
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use async_trait::async_trait;
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{error, info, span::EnteredSpan, trace, warn};
 use uhlc::Timestamp;
 #[cfg(feature = "internal")]
 use uhlc::HLC;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use web_time::{SystemTime, UNIX_EPOCH};
 use zenoh_collections::{IntHashMap, SingleOrVec};
 use zenoh_config::{
     qos::{PublisherQoSConfList, PublisherQoSConfig},
@@ -38,7 +42,9 @@ use zenoh_config::{
 };
 #[cfg(feature = "unstable")]
 use zenoh_config::{wrappers::EntityGlobalId, GenericConfig};
-use zenoh_core::{zconfigurable, zread, Resolve, ResolveClosure, ResolveFuture, Wait};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use zenoh_core::Wait;
+use zenoh_core::{zconfigurable, zread, Resolve, ResolveClosure, ResolveFuture};
 use zenoh_keyexpr::keyexpr_tree::{IKeyExprTree, IKeyExprTreeNode, KeBoxTree};
 use zenoh_protocol::{
     core::{
@@ -777,8 +783,19 @@ impl Clone for Session {
 impl Drop for Session {
     fn drop(&mut self) {
         if self.0.strong_counter.fetch_sub(1, Ordering::Relaxed) == 1 {
-            if let Err(error) = self.close().wait() {
-                tracing::error!(error)
+            #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+            {
+                if let Err(error) = self.close().wait() {
+                    tracing::error!(error)
+                }
+            }
+
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            {
+                let closee = self.downgrade();
+                zenoh_runtime::ZRuntime::Net.spawn(async move {
+                    closee.close_inner(SessionCloseArgs::default()).await;
+                });
             }
         }
     }
@@ -3597,7 +3614,7 @@ impl Closee for WeakSession {
             closee.close_inner(()).await;
         } else {
             self.0.task_controller.terminate_all_async().await;
-            primitives.send_close();
+            primitives.send_close_async().await;
         }
     }
 }

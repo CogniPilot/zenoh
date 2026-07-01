@@ -39,13 +39,12 @@ leb128 = { workspace = true }
 lru = { workspace = true }
 serde = { workspace = true, features = ["default"] }
 tokio = { workspace = true, features = [
-  "io-std",
   "macros",
   "rt",
   "sync",
   "time",
 ] }
-tokio-util = { workspace = true }
+tokio-util = { workspace = true, default-features = false, features = ["rt"] }
 tracing = { workspace = true }
 uhlc = { workspace = true }
 zenoh = { workspace = true, default-features = false }

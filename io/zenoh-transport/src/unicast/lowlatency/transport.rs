@@ -21,7 +21,9 @@ use std::{
 use async_trait::async_trait;
 use tokio::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard, RwLock};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use zenoh_core::{zasynclock, zasyncread, zasyncwrite, zread, zwrite};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use zenoh_core::zasyncread;
+use zenoh_core::{zasynclock, zasyncwrite, zread, zwrite};
 use zenoh_link::Link;
 use zenoh_protocol::{
     core::{Bound, RegionName, WhatAmI, ZenohIdProto},
@@ -187,10 +189,19 @@ impl TransportUnicastTrait for TransportUnicastLowlatency {
     }
 
     fn get_links(&self) -> Vec<Link> {
-        let handle = tokio::runtime::Handle::current();
-        let guard =
-            tokio::task::block_in_place(|| handle.block_on(async { zasyncread!(self.link) }));
-        guard.as_ref().map(|l| vec![l.link()]).unwrap_or_default()
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        let guard = {
+            let handle = tokio::runtime::Handle::current();
+            tokio::task::block_in_place(|| handle.block_on(async { zasyncread!(self.link) }))
+        };
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            return vec![];
+        }
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            guard.as_ref().map(|l| vec![l.link()]).unwrap_or_default()
+        }
     }
 
     fn get_zid(&self) -> ZenohIdProto {
@@ -199,17 +210,36 @@ impl TransportUnicastTrait for TransportUnicastLowlatency {
 
     fn get_auth_ids(&self) -> TransportAuthId {
         // Convert LinkUnicast auth id to AuthId
+        #[cfg_attr(
+            all(
+                target_family = "wasm",
+                target_os = "unknown",
+                not(feature = "auth_usrpwd")
+            ),
+            allow(unused_mut)
+        )]
         let mut transport_auth_id = TransportAuthId::new(self.get_zid());
-        let handle = tokio::runtime::Handle::current();
-        let guard =
-            tokio::task::block_in_place(|| handle.block_on(async { zasyncread!(self.link) }));
-        if let Some(val) = guard.as_ref() {
-            transport_auth_id.push_link_auth_id(val.link.get_auth_id().clone());
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        let guard = {
+            let handle = tokio::runtime::Handle::current();
+            tokio::task::block_in_place(|| handle.block_on(async { zasyncread!(self.link) }))
+        };
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            #[cfg(feature = "auth_usrpwd")]
+            transport_auth_id.set_username(&self.config.auth_id);
+            return transport_auth_id;
         }
-        // Convert usrpwd auth id to AuthId
-        #[cfg(feature = "auth_usrpwd")]
-        transport_auth_id.set_username(&self.config.auth_id);
-        transport_auth_id
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            if let Some(val) = guard.as_ref() {
+                transport_auth_id.push_link_auth_id(val.link.get_auth_id().clone());
+            }
+            // Convert usrpwd auth id to AuthId
+            #[cfg(feature = "auth_usrpwd")]
+            transport_auth_id.set_username(&self.config.auth_id);
+            transport_auth_id
+        }
     }
 
     fn get_whatami(&self) -> WhatAmI {

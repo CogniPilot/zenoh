@@ -18,11 +18,15 @@ use std::{
         atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
         Arc, Mutex, MutexGuard,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use crossbeam_utils::CachePadded;
 use ringbuffer_spsc::{RingBuffer, RingBufferReader, RingBufferWriter};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::time::Instant;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use web_time::Instant;
 use zenoh_buffers::{
     reader::{HasReader, Reader},
     writer::HasWriter,
@@ -41,7 +45,9 @@ use zenoh_protocol::{
         AtomicBatchSize, BatchSize, TransportMessage,
     },
 };
-use zenoh_sync::{event, Notifier, WaitDeadlineError, Waiter};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use zenoh_sync::WaitDeadlineError;
+use zenoh_sync::{event, Notifier, Waiter};
 
 use super::{
     batch::{Encode, WBatch},
@@ -84,11 +90,18 @@ impl StageInRefill {
         }
     }
 
-    fn wait(&self) -> bool {
-        self.n_ref_r.wait().is_ok()
+    fn wait(&self) -> Result<(), TransportClosed> {
+        self.n_ref_r.wait().map_err(|_| TransportClosed)
     }
 
     fn wait_deadline(&self, instant: Instant) -> Result<bool, TransportClosed> {
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            let _ = instant;
+            return Ok(false);
+        }
+
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         match self.n_ref_r.wait_deadline(instant) {
             Ok(()) => Ok(true),
             Err(WaitDeadlineError::Deadline) => Ok(false),
@@ -459,7 +472,7 @@ impl StageIn {
     }
 
     #[inline]
-    fn push_transport_message(&mut self, msg: TransportMessage) -> bool {
+    fn push_transport_message(&mut self, msg: TransportMessage) -> Result<bool, TransportClosed> {
         // Lock the current serialization batch.
         let mut c_guard = zlock!(self.mutex.current);
         c_guard.notify_pending();
@@ -479,9 +492,7 @@ impl StageIn {
                                 break batch;
                             }
                             None => {
-                                if !self.s_ref.wait() {
-                                    return false;
-                                }
+                                self.s_ref.wait()?;
                             }
                         },
                     }
@@ -494,13 +505,13 @@ impl StageIn {
                 if !self.batching {
                     // Move out existing batch
                     self.s_out.move_batch($batch);
-                    return true;
+                    return Ok(true);
                 } else {
                     let bytes = $batch.len();
                     c_guard.batch = Some($batch);
                     drop(c_guard);
                     self.s_out.notify(bytes);
-                    return true;
+                    return Ok(true);
                 }
             }};
         }
@@ -520,7 +531,7 @@ impl StageIn {
 
         // The first serialization attempt has failed. This means that the current
         // batch is full. Therefore, we move the current batch to stage out.
-        batch.encode(&msg).is_ok()
+        Ok(batch.encode(&msg).is_ok())
     }
 }
 
@@ -926,7 +937,11 @@ impl TransmissionPipelineProducer {
     }
 
     #[inline]
-    pub(crate) fn push_transport_message(&self, msg: TransportMessage, priority: Priority) -> bool {
+    pub(crate) fn push_transport_message(
+        &self,
+        msg: TransportMessage,
+        priority: Priority,
+    ) -> Result<bool, TransportClosed> {
         // If the queue is not QoS, it means that we only have one priority with index 0.
         let priority = if self.stage_in.len() > 1 {
             priority as usize

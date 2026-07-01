@@ -18,25 +18,31 @@
 //!
 //! [Click here for Zenoh's documentation](https://docs.rs/zenoh/latest/zenoh)
 use core::panic;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::sync::atomic::Ordering;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::time::Duration;
 use std::{
     borrow::Borrow,
     collections::HashMap,
     env, fmt,
     future::Future,
     ops::Deref,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        OnceLock,
-    },
-    time::Duration,
+    sync::{atomic::AtomicUsize, OnceLock},
 };
 
 use lazy_static::lazy_static;
 use serde::Deserialize;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use tokio::runtime::RuntimeFlavor;
 use tokio::{
-    runtime::{Handle, Runtime, RuntimeFlavor},
+    runtime::{Handle, Runtime},
     task::JoinHandle,
 };
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use wasm_bindgen::closure::Closure;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use wasm_bindgen::JsCast;
 use zenoh_macros::{GenericRuntimeParam, RegisterParam};
 use zenoh_result::ZResult as Result;
 
@@ -65,6 +71,7 @@ impl Default for RuntimeParam {
 }
 
 impl RuntimeParam {
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub fn build(&self, zrt: ZRuntime) -> Result<Runtime> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(self.worker_threads)
@@ -78,6 +85,14 @@ impl RuntimeParam {
                     .fetch_add(1, Ordering::SeqCst);
                 format!("{zrt}-{id}")
             })
+            .build()?;
+        Ok(rt)
+    }
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    pub fn build(&self, _zrt: ZRuntime) -> Result<Runtime> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
             .build()?;
         Ok(rt)
     }
@@ -143,23 +158,34 @@ impl ZRuntime {
     where
         F: Future<Output = R>,
     {
-        match Handle::try_current() {
-            Ok(handle) => {
-                if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
-                    panic!("Zenoh runtime doesn't support Tokio's current thread scheduler. Please use multi thread scheduler instead, e.g. a multi thread scheduler with one worker thread: `#[tokio::main(flavor = \"multi_thread\", worker_threads = 1)]`");
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            match Handle::try_current() {
+                Ok(handle) => {
+                    if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
+                        panic!("Zenoh runtime doesn't support Tokio's current thread scheduler. Please use multi thread scheduler instead, e.g. a multi thread scheduler with one worker thread: `#[tokio::main(flavor = \"multi_thread\", worker_threads = 1)]`");
+                    }
+                }
+                Err(e) => {
+                    if e.is_thread_local_destroyed() {
+                        panic!("The Thread Local Storage inside Tokio is destroyed. This might happen when Zenoh API is called at process exit, e.g. in the atexit handler. Calling the Zenoh API at process exit is not supported and should be avoided.");
+                    }
                 }
             }
-            Err(e) => {
-                if e.is_thread_local_destroyed() {
-                    panic!("The Thread Local Storage inside Tokio is destroyed. This might happen when Zenoh API is called at process exit, e.g. in the atexit handler. Calling the Zenoh API at process exit is not supported and should be avoided.");
-                }
-            }
+
+            #[cfg(feature = "tracing-instrument")]
+            let f = tracing::Instrument::instrument(f, tracing::Span::current());
+
+            tokio::task::block_in_place(move || self.block_on(f))
         }
 
-        #[cfg(feature = "tracing-instrument")]
-        let f = tracing::Instrument::instrument(f, tracing::Span::current());
-
-        tokio::task::block_in_place(move || self.block_on(f))
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            let _ = f;
+            panic!(
+                "Blocking Zenoh waits are not supported on wasm32-unknown-unknown; use `.await` instead"
+            );
+        }
     }
 }
 
@@ -192,14 +218,30 @@ impl Drop for ZRuntimePoolGuard {
     }
 }
 
-pub struct ZRuntimePool(HashMap<ZRuntime, OnceLock<Runtime>>);
+struct ZRuntimeCell {
+    runtime: OnceLock<Runtime>,
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    driver: OnceLock<()>,
+}
+
+impl ZRuntimeCell {
+    fn new() -> Self {
+        Self {
+            runtime: OnceLock::new(),
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            driver: OnceLock::new(),
+        }
+    }
+}
+
+pub struct ZRuntimePool(HashMap<ZRuntime, ZRuntimeCell>);
 
 impl fmt::Debug for ZRuntimePool {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let initialized = self
             .0
             .iter()
-            .filter_map(|(runtime, cell)| cell.get().map(|_| runtime))
+            .filter_map(|(runtime, cell)| cell.runtime.get().map(|_| runtime))
             .collect::<Vec<_>>();
         f.debug_struct("ZRuntimePool")
             .field("initialized", &initialized)
@@ -209,7 +251,11 @@ impl fmt::Debug for ZRuntimePool {
 
 impl ZRuntimePool {
     fn new() -> Self {
-        Self(ZRuntime::iter().map(|zrt| (zrt, OnceLock::new())).collect())
+        Self(
+            ZRuntime::iter()
+                .map(|zrt| (zrt, ZRuntimeCell::new()))
+                .collect(),
+        )
     }
 
     pub fn get(&self, zrt: &ZRuntime) -> &Handle {
@@ -221,31 +267,82 @@ impl ZRuntimePool {
             None => *zrt,
         };
 
-        self.0
+        let cell = self
+            .0
             .get(&zrt)
-            .unwrap_or_else(|| panic!("The hashmap should contains {zrt} after initialization"))
-            .get_or_init(|| {
-                zrt.init()
-                    .unwrap_or_else(|_| panic!("Failed to init {zrt}"))
-            })
-            .handle()
+            .unwrap_or_else(|| panic!("The hashmap should contains {zrt} after initialization"));
+        let runtime = cell.runtime.get_or_init(|| {
+            zrt.init()
+                .unwrap_or_else(|_| panic!("Failed to init {zrt}"))
+        });
+
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        cell.driver
+            .get_or_init(|| start_wasm_runtime_driver(runtime as *const Runtime));
+
+        runtime.handle()
+    }
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+fn start_wasm_runtime_driver(runtime: *const Runtime) {
+    use std::{cell::RefCell, rc::Rc};
+
+    fn schedule(callback: &Closure<dyn FnMut()>) {
+        let callback = callback.as_ref().unchecked_ref();
+        let global = js_sys::global();
+
+        if let Some(window) = web_sys::window() {
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(callback, 1);
+        } else if let Some(worker) = global.dyn_ref::<web_sys::WorkerGlobalScope>() {
+            let _ = worker.set_timeout_with_callback_and_timeout_and_arguments_0(callback, 1);
+        } else {
+            tracing::warn!(
+                "Unable to drive Zenoh's wasm Tokio runtime: no Window or WorkerGlobalScope is available"
+            );
+        }
+    }
+
+    let callback = Rc::new(RefCell::new(None::<Closure<dyn FnMut()>>));
+    let callback_for_closure = callback.clone();
+    *callback.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+        // The runtime is stored in a static OnceLock and is not dropped on wasm.
+        let runtime = unsafe { &*runtime };
+        runtime.block_on(async {
+            tokio::task::yield_now().await;
+        });
+
+        if let Some(callback) = callback_for_closure.as_ref().borrow().as_ref() {
+            schedule(callback);
+        }
+    }) as Box<dyn FnMut()>));
+
+    {
+        let callback = callback.as_ref().borrow();
+        if let Some(callback) = callback.as_ref() {
+            schedule(callback);
+        }
     }
 }
 
 // If there are any blocking tasks spawned by ZRuntimes, the function will block until they return.
 impl Drop for ZRuntimePool {
     fn drop(&mut self) {
-        let handles: Vec<_> = self
-            .0
-            .drain()
-            .filter_map(|(_name, mut rt)| {
-                rt.take()
-                    .map(|r| std::thread::spawn(move || r.shutdown_timeout(Duration::from_secs(1))))
-            })
-            .collect();
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            let handles: Vec<_> = self
+                .0
+                .drain()
+                .filter_map(|(_name, mut cell)| {
+                    cell.runtime.take().map(|r| {
+                        std::thread::spawn(move || r.shutdown_timeout(Duration::from_secs(1)))
+                    })
+                })
+                .collect();
 
-        for hd in handles {
-            let _ = hd.join();
+            for hd in handles {
+                let _ = hd.join();
+            }
         }
     }
 }

@@ -47,8 +47,10 @@ use super::{
     },
     RoutingContext,
 };
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use crate::net::protocol::linkstate::LinkInfo;
 use crate::net::{
-    protocol::{linkstate::LinkInfo, network::SuccessorEntry},
+    protocol::network::SuccessorEntry,
     routing::dispatcher::{
         interests::{CurrentInterest, RemoteInterest},
         region::RegionMap,
@@ -220,6 +222,7 @@ pub(crate) trait HatBaseTrait: Any {
 
     fn close_face(&mut self, ctx: DispatcherContext);
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     fn update_from_config(
         &mut self,
         _tables_ref: &Arc<TablesLock>,
@@ -228,6 +231,7 @@ pub(crate) trait HatBaseTrait: Any {
         Ok(())
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     fn links_info(&self) -> HashMap<ZenohIdProto, LinkInfo> {
         HashMap::new()
     }

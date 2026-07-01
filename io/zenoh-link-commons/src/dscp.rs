@@ -11,8 +11,11 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use std::{net::SocketAddr, num::ParseIntError};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::net::SocketAddr;
+use std::num::ParseIntError;
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tracing::warn;
 use zenoh_protocol::core::Config;
 use zenoh_result::{zerror, ZResult};
@@ -50,6 +53,7 @@ pub fn parse_dscp(config: &Config) -> ZResult<Option<u32>> {
 ///
 /// If the target doesn't support it, a warning is emitted.
 /// IPv4 uses IP_TOS, while IPv6 uses IPV6_TCLASS
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub fn set_dscp<'a>(
     socket: impl Into<socket2::SockRef<'a>>,
     addr: SocketAddr,

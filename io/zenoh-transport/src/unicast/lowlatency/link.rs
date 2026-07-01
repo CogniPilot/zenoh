@@ -96,7 +96,15 @@ pub(crate) async fn read_with_link(
 
 impl TransportUnicastLowlatency {
     pub(super) fn send(&self, msg: TransportMessageLowLatencyRef) -> ZResult<()> {
-        zenoh_runtime::ZRuntime::TX.block_in_place(self.send_async(msg))
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            zenoh_runtime::ZRuntime::TX.block_in_place(self.send_async(msg))
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            let _ = msg;
+            Err(zerror!("Lowlatency transport is not supported on wasm32-unknown-unknown").into())
+        }
     }
 
     pub(super) async fn send_async(&self, msg: TransportMessageLowLatencyRef<'_>) -> ZResult<()> {

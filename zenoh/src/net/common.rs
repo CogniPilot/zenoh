@@ -13,6 +13,7 @@ pub(crate) struct AutoConnect {
 
 impl AutoConnect {
     /// Builds an `AutoConnect` from multicast config.
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) fn multicast(config: &Config, what: WhatAmI, zid: ZenohIdProto) -> Self {
         Self {
             zid,
@@ -49,6 +50,7 @@ impl AutoConnect {
     }
 
     /// Returns the autonnection matcher.
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) fn matcher(&self) -> WhatAmIMatcher {
         self.matcher
     }

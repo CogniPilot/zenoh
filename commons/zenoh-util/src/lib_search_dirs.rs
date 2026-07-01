@@ -11,7 +11,9 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use std::{env, error::Error, fmt::Display, path::PathBuf, str::FromStr};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::env;
+use std::{error::Error, fmt::Display, path::PathBuf, str::FromStr};
 
 use serde::{
     de::{value::MapAccessDeserializer, Visitor},
@@ -155,30 +157,47 @@ impl LibSearchSpec {
                     ));
                 };
 
-                let expanded =
-                    shellexpand::full(value).map_err(|err| error_from_source(&self, err))?;
+                #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+                {
+                    let expanded =
+                        shellexpand::full(value).map_err(|err| error_from_source(&self, err))?;
 
-                let path =
-                    PathBuf::from_str(&expanded).map_err(|err| error_from_source(&self, err))?;
+                    let path = PathBuf::from_str(&expanded)
+                        .map_err(|err| error_from_source(&self, err))?;
 
-                Ok(path)
+                    Ok(path)
+                }
+                #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+                {
+                    PathBuf::from_str(value).map_err(|err| error_from_source(&self, err))
+                }
             }
             LibSearchSpecKind::CurrentExeParent => {
-                let current_exe =
-                    env::current_exe().map_err(|err| error_from_source(&self, err))?;
+                #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+                {
+                    let current_exe =
+                        env::current_exe().map_err(|err| error_from_source(&self, err))?;
 
-                let Some(current_exe_parent) = current_exe.parent() else {
-                    return Err(error_from_str(
+                    let Some(current_exe_parent) = current_exe.parent() else {
+                        return Err(error_from_str(
+                            &self,
+                            "current executable's path has no parent directory",
+                        ));
+                    };
+
+                    let canonicalized = current_exe_parent
+                        .canonicalize()
+                        .map_err(|err| error_from_source(&self, err))?;
+
+                    Ok(canonicalized)
+                }
+                #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+                {
+                    Err(error_from_str(
                         &self,
-                        "current executable's path has no parent directory",
-                    ));
-                };
-
-                let canonicalized = current_exe_parent
-                    .canonicalize()
-                    .map_err(|err| error_from_source(&self, err))?;
-
-                Ok(canonicalized)
+                        "`current_exe_parent` is not available on wasm32-unknown-unknown",
+                    ))
+                }
             }
         }
     }

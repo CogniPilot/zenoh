@@ -23,6 +23,8 @@ use async_trait::async_trait;
 #[cfg(all(feature = "unstable", feature = "internal"))]
 use tokio::sync::oneshot::Receiver;
 use zenoh_core::{Resolvable, Wait};
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use zenoh_result::zerror;
 use zenoh_result::ZResult;
 use zenoh_runtime::ZRuntime;
 
@@ -126,18 +128,39 @@ impl<TCloseable: Closeable> IntoFuture for CloseBuilder<TCloseable> {
     type IntoFuture = Pin<Box<dyn Future<Output = <Self as IntoFuture>::Output> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {
-        Box::pin(
-            async move {
-                if tokio::time::timeout(self.timeout, self.closee.close_inner(self.close_args))
-                    .await
-                    .is_err()
-                {
-                    bail!("close operation timed out!")
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            Box::pin(
+                async move {
+                    if tokio::time::timeout(self.timeout, self.closee.close_inner(self.close_args))
+                        .await
+                        .is_err()
+                    {
+                        bail!("close operation timed out!")
+                    }
+                    Ok(())
                 }
-                Ok(())
-            }
-            .into_future(),
-        )
+                .into_future(),
+            )
+        }
+
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            Box::pin(async move {
+                let handle = ZRuntime::Net.spawn(async move {
+                    if tokio::time::timeout(self.timeout, self.closee.close_inner(self.close_args))
+                        .await
+                        .is_err()
+                    {
+                        bail!("close operation timed out!")
+                    }
+                    Ok(())
+                });
+                handle
+                    .await
+                    .map_err(|e| zerror!("Zenoh close task failed: {}", e))?
+            })
+        }
     }
 }
 

@@ -125,6 +125,7 @@ home = "0.5.9"
 humantime = "2.3.0"
 io-uring = "0.7.10"
 itertools = "0.14.0"
+js-sys = "0.3.94"
 json5 = "0.4.1"
 jsonschema = { version = "0.20", default-features = false } # Don't bump jsonschem version because of invalid license while running `cargo deny check licenses`
 keyed-set = "1.1.0"
@@ -192,7 +193,7 @@ token-cell = { version = "2.0.0", default-features = false }
 tokio = { version = "1.47.1", default-features = false } # Default features are disabled due to some crates' requirements
 tokio-rustls = { version = "0.26.2", default-features = false }
 tokio-tungstenite = "0.24.0"
-tokio-util = "0.7.16"
+tokio-util = { version = "0.7.16", default-features = false }
 toml = "0.9.6"
 tower = "0.5.2"
 tower-http = "0.6.6"
@@ -216,6 +217,9 @@ uuid = { version = "1.20.0", default-features = false, features = [
 ] } # Default features are disabled due to usage in no_std crates
 validated_struct = "2.2.0"
 vec_map = "0.8.2"
+wasm-bindgen = "0.2.117"
+web-time = "1.1.0"
+web-sys = "0.3.94"
 webpki-roots = "1.0.4"
 win-sys = "0.3"
 winapi = { version = "0.3.9", features = ["iphlpapi", "memoryapi", "winerror"] }

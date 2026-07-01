@@ -18,9 +18,11 @@ use std::{
 };
 
 use itertools::Itertools;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use petgraph::visit::EdgeRef;
 use petgraph::{
     graph::NodeIndex,
-    visit::{EdgeRef, IntoNodeReferences, VisitMap, Visitable},
+    visit::{IntoNodeReferences, VisitMap, Visitable},
 };
 use rand::Rng;
 use vec_map::VecMap;
@@ -40,6 +42,7 @@ use zenoh_protocol::{
 };
 use zenoh_transport::unicast::TransportUnicast;
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use super::linkstate::LinkInfo;
 use crate::net::{
     codec::Zenoh080Routing,
@@ -194,6 +197,7 @@ impl Network {
         }
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) fn update_link_weights(
         &mut self,
         link_weights: HashMap<ZenohIdProto, LinkEdgeWeight>,
@@ -1115,6 +1119,7 @@ impl Network {
         new_children
     }
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub(crate) fn links_info(&self) -> HashMap<ZenohIdProto, LinkInfo> {
         let mut out = HashMap::new();
         for e in self

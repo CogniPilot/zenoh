@@ -84,6 +84,37 @@ jobs:
           cargo +stable clippy --release --manifest-path ci/zenoh-1-75/Cargo.toml -- -D warnings
           git restore Cargo.lock
 
+  check_wasm:
+    name: Check wasm32-unknown-unknown
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clone this repository
+        uses: actions/checkout@v4
+
+      - name: Update Stable Rust toolchain
+        run: rustup update stable
+
+      - name: Install wasm target
+        run: rustup target add wasm32-unknown-unknown --toolchain stable
+
+      - name: Setup rust-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+
+      - name: Check zenoh wasm no-default-features
+        run: cargo +stable check -p zenoh --target wasm32-unknown-unknown --no-default-features
+
+      - name: Check zenoh wasm WebSocket transport
+        run: cargo +stable check -p zenoh --target wasm32-unknown-unknown --no-default-features --features transport_ws
+
+      - name: Check zenoh wasm internal WebSocket transport
+        run: cargo +stable check -p zenoh --target wasm32-unknown-unknown --no-default-features --features transport_ws,unstable,internal
+
+      - name: Check zenoh-ext wasm
+        run: cargo +stable check -p zenoh-ext --target wasm32-unknown-unknown --no-default-features
+
   check:
     needs: determine-runner
     name: Lints and doc tests on ${{ matrix.os }}

@@ -59,16 +59,9 @@ rustls-pki-types = { workspace = true, optional = true }
 rustls-webpki = { workspace = true, optional = true }
 secrecy = { workspace = true, optional = true }
 serde = { workspace = true, features = ["default"] }
-socket2 = { workspace = true }
 time = { workspace = true }
-tokio = { workspace = true, features = [
-  "fs",
-  "io-util",
-  "net",
-  "sync",
-  "time",
-] }
-tokio-util = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["io-util", "sync", "time"] }
+tokio-util = { workspace = true, default-features = false, features = ["rt"] }
 tracing = { workspace = true }
 webpki-roots = { workspace = true, optional = true }
 x509-parser = { workspace = true, optional = true }
@@ -80,6 +73,10 @@ zenoh-protocol = { workspace = true }
 zenoh-result = { workspace = true }
 zenoh-runtime = { workspace = true }
 zenoh-util = { workspace = true }
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+socket2 = { workspace = true }
+tokio = { workspace = true, features = ["fs", "net"] }
 
 [package.metadata.cargo-machete]
 ignored = ["rustls-webpki"]

@@ -539,6 +539,127 @@ impl Face {
 
         // wtables is dropped
     }
+
+    fn finalize_close(&self, mut state: Arc<FaceState>) {
+        finalize_pending_queries(&self.tables, &mut state);
+        let mut declares = vec![];
+        let ctrl_lock = zlock!(self.tables.ctrl_lock);
+        finalize_pending_interests(&self.tables, &mut state, &mut |p, m| {
+            declares.push((p.clone(), m))
+        });
+        let mut wtables = zwrite!(self.tables.tables);
+        let tables = &mut *wtables;
+
+        let mut ctx = DispatcherContext {
+            tables_lock: &self.tables,
+            tables: &mut tables.data,
+            src_face: &mut state,
+            send_declare: &mut |p, m| declares.push((p.clone(), m)),
+        };
+
+        let hats = &mut tables.hats;
+        let region = self.state.region;
+        let src_fid = ctx.src_face.id;
+
+        for mut res in hats[region].unregister_face_subscribers(ctx.reborrow()) {
+            hats[region].disable_data_routes(&mut res);
+
+            let mut remaining = hats
+                .values_mut()
+                .filter(|hat| hat.remote_subscribers_of(ctx.tables, &res).is_some())
+                .collect_vec();
+
+            if remaining.is_empty() {
+                for hat in hats.values_mut() {
+                    hat.unpropagate_subscriber(ctx.reborrow(), res.clone());
+                }
+                get_mut_unchecked(&mut res).face_ctxs.remove(&src_fid);
+                Resource::clean(&mut res);
+            } else if let [last_owner] = &mut *remaining {
+                last_owner.unpropagate_last_non_owned_subscriber(ctx.reborrow(), res.clone())
+            }
+        }
+
+        for mut res in hats[region].unregister_face_queryables(ctx.reborrow()) {
+            hats[region].disable_query_routes(&mut res);
+
+            let remaining = hats
+                .iter()
+                .filter_map(|(rgn, hat)| {
+                    hat.remote_queryables_of(ctx.tables, &res)
+                        .map(|info| (rgn, info))
+                })
+                .collect_vec();
+
+            match &*remaining {
+                [] => {
+                    for hat in hats.values_mut() {
+                        hat.unpropagate_queryable(ctx.reborrow(), res.clone());
+                    }
+                    get_mut_unchecked(&mut res).face_ctxs.remove(&src_fid);
+                    Resource::clean(&mut res);
+                }
+                [(last_owner, _)] if last_owner != &region => hats[last_owner]
+                    .unpropagate_last_non_owned_queryable(ctx.reborrow(), res.clone()),
+                _ => {
+                    for hat in hats.values_mut() {
+                        let other_info = remaining
+                            .iter()
+                            .filter_map(|(region, info)| (region != &hat.region()).then_some(*info))
+                            .reduce(merge_qabl_infos);
+
+                        hat.propagate_queryable(ctx.reborrow(), res.clone(), other_info);
+                    }
+                }
+            }
+        }
+
+        for mut res in hats[region].unregister_face_tokens(ctx.reborrow()) {
+            let mut remaining = hats
+                .values_mut()
+                .filter(|hat| hat.remote_tokens_of(ctx.tables, &res))
+                .collect_vec();
+
+            if remaining.is_empty() {
+                for hat in hats.values_mut() {
+                    hat.unpropagate_token(ctx.reborrow(), res.clone());
+                }
+                get_mut_unchecked(&mut res).face_ctxs.remove(&src_fid);
+                Resource::clean(&mut res);
+            } else if let [last_owner] = &mut *remaining {
+                last_owner.unpropagate_last_non_owned_token(ctx.reborrow(), res.clone())
+            }
+        }
+
+        for res in get_mut_unchecked(ctx.src_face).remote_mappings.values_mut() {
+            get_mut_unchecked(res).face_ctxs.remove(&src_fid);
+            Resource::clean(res);
+        }
+        get_mut_unchecked(ctx.src_face).remote_mappings.clear();
+
+        for res in get_mut_unchecked(ctx.src_face).local_mappings.values_mut() {
+            get_mut_unchecked(res).face_ctxs.remove(&src_fid);
+            Resource::clean(res);
+        }
+        get_mut_unchecked(ctx.src_face).local_mappings.clear();
+
+        for interest in get_mut_unchecked(ctx.src_face).local_interests.values_mut() {
+            if let Some(mut res) = interest.res.take() {
+                Resource::clean(&mut res);
+            }
+        }
+        get_mut_unchecked(ctx.src_face).local_interests.clear();
+
+        hats[region].close_face(ctx);
+
+        tables.data.faces.remove(&src_fid);
+
+        drop(wtables);
+        drop(ctrl_lock);
+        for (p, m) in declares {
+            m.with_mut(|m| p.send_declare(m));
+        }
+    }
 }
 
 impl Primitives for Face {
@@ -703,126 +824,27 @@ impl Primitives for Face {
 
     #[tracing::instrument(level = "debug", skip(self), fields(src = %self), ret)]
     fn send_close(&self) {
-        let mut state = self.state.clone();
+        let state = self.state.clone();
         state.task_controller.terminate_all(Duration::from_secs(10));
-        finalize_pending_queries(&self.tables, &mut state);
-        let mut declares = vec![];
-        let ctrl_lock = zlock!(self.tables.ctrl_lock);
-        finalize_pending_interests(&self.tables, &mut state, &mut |p, m| {
-            declares.push((p.clone(), m))
-        });
-        let mut wtables = zwrite!(self.tables.tables);
-        let tables = &mut *wtables;
+        self.finalize_close(state);
+    }
 
-        let mut ctx = DispatcherContext {
-            tables_lock: &self.tables,
-            tables: &mut tables.data,
-            src_face: &mut state,
-            send_declare: &mut |p, m| declares.push((p.clone(), m)),
-        };
-
-        let hats = &mut tables.hats;
-        let region = self.state.region;
-        let src_fid = ctx.src_face.id;
-
-        for mut res in hats[region].unregister_face_subscribers(ctx.reborrow()) {
-            hats[region].disable_data_routes(&mut res);
-
-            let mut remaining = hats
-                .values_mut()
-                .filter(|hat| hat.remote_subscribers_of(ctx.tables, &res).is_some())
-                .collect_vec();
-
-            if remaining.is_empty() {
-                for hat in hats.values_mut() {
-                    hat.unpropagate_subscriber(ctx.reborrow(), res.clone());
-                }
-                get_mut_unchecked(&mut res).face_ctxs.remove(&src_fid);
-                Resource::clean(&mut res);
-            } else if let [last_owner] = &mut *remaining {
-                last_owner.unpropagate_last_non_owned_subscriber(ctx.reborrow(), res.clone())
+    fn send_close_async(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(async move {
+            let state = self.state.clone();
+            if tokio::time::timeout(
+                Duration::from_secs(10),
+                state.task_controller.terminate_all_async(),
+            )
+            .await
+            .is_err()
+            {
+                tracing::error!("Failed to terminate face tasks");
             }
-        }
-
-        for mut res in hats[region].unregister_face_queryables(ctx.reborrow()) {
-            hats[region].disable_query_routes(&mut res);
-
-            let remaining = hats
-                .iter()
-                .filter_map(|(rgn, hat)| {
-                    hat.remote_queryables_of(ctx.tables, &res)
-                        .map(|info| (rgn, info))
-                })
-                .collect_vec();
-
-            match &*remaining {
-                [] => {
-                    for hat in hats.values_mut() {
-                        hat.unpropagate_queryable(ctx.reborrow(), res.clone());
-                    }
-                    get_mut_unchecked(&mut res).face_ctxs.remove(&src_fid);
-                    Resource::clean(&mut res);
-                }
-                [(last_owner, _)] if last_owner != &region => hats[last_owner]
-                    .unpropagate_last_non_owned_queryable(ctx.reborrow(), res.clone()),
-                _ => {
-                    for hat in hats.values_mut() {
-                        let other_info = remaining
-                            .iter()
-                            .filter_map(|(region, info)| (region != &hat.region()).then_some(*info))
-                            .reduce(merge_qabl_infos);
-
-                        hat.propagate_queryable(ctx.reborrow(), res.clone(), other_info);
-                    }
-                }
-            }
-        }
-
-        for mut res in hats[region].unregister_face_tokens(ctx.reborrow()) {
-            let mut remaining = hats
-                .values_mut()
-                .filter(|hat| hat.remote_tokens_of(ctx.tables, &res))
-                .collect_vec();
-
-            if remaining.is_empty() {
-                for hat in hats.values_mut() {
-                    hat.unpropagate_token(ctx.reborrow(), res.clone());
-                }
-                get_mut_unchecked(&mut res).face_ctxs.remove(&src_fid);
-                Resource::clean(&mut res);
-            } else if let [last_owner] = &mut *remaining {
-                last_owner.unpropagate_last_non_owned_token(ctx.reborrow(), res.clone())
-            }
-        }
-
-        for res in get_mut_unchecked(ctx.src_face).remote_mappings.values_mut() {
-            get_mut_unchecked(res).face_ctxs.remove(&src_fid);
-            Resource::clean(res);
-        }
-        get_mut_unchecked(ctx.src_face).remote_mappings.clear();
-
-        for res in get_mut_unchecked(ctx.src_face).local_mappings.values_mut() {
-            get_mut_unchecked(res).face_ctxs.remove(&src_fid);
-            Resource::clean(res);
-        }
-        get_mut_unchecked(ctx.src_face).local_mappings.clear();
-
-        for interest in get_mut_unchecked(ctx.src_face).local_interests.values_mut() {
-            if let Some(mut res) = interest.res.take() {
-                Resource::clean(&mut res);
-            }
-        }
-        get_mut_unchecked(ctx.src_face).local_interests.clear();
-
-        hats[region].close_face(ctx);
-
-        tables.data.faces.remove(&src_fid);
-
-        drop(wtables);
-        drop(ctrl_lock);
-        for (p, m) in declares {
-            m.with_mut(|m| p.send_declare(m));
-        }
+            self.finalize_close(state);
+        })
     }
 
     fn as_any(&self) -> &dyn Any {

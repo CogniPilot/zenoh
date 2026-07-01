@@ -86,6 +86,34 @@ async fn main() {
 }
 ```
 
+# Browser WebAssembly
+
+The `zenoh` crate can be checked for `wasm32-unknown-unknown` with no default
+features. Browser transports require explicit WebSocket connect endpoints:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo check -p zenoh --target wasm32-unknown-unknown --no-default-features --features transport_ws
+```
+
+Browser applications should configure `ws` endpoints and use the async API:
+
+```rust
+let mut config = zenoh::Config::default();
+config
+    .insert_json5("connect/endpoints", r#"["ws/router.example.com:7447"]"#)
+    .unwrap();
+let session = zenoh::open(config).await.unwrap();
+```
+
+The browser target does not support multicast scouting, listeners, dynamic
+native plugins, low-latency transport, or blocking `.wait()` calls. A native
+`zenohd` router can provide the WebSocket listener, for example:
+
+```bash
+zenohd -l ws/0.0.0.0:7447
+```
+
 # Rust 1.75 support
 
 The crate `zenoh` can be compiled with Rust 1.75.0, but some of its dependencies may require higher Rust versions.

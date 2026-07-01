@@ -11,20 +11,26 @@
 // Contributors:
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
-use std::{fmt, net::SocketAddr, ops::Deref, time::Duration};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::net::SocketAddr;
+use std::{fmt, ops::Deref, time::Duration};
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tokio::net::UdpSocket;
 use zenoh_config::wrappers::Hello;
 use zenoh_protocol::core::WhatAmIMatcher;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use zenoh_result::bail;
 use zenoh_result::ZResult;
 use zenoh_task::TerminatableTask;
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use crate::net::runtime::{orchestrator::Loop, Runtime};
 use crate::{
     api::{
         builders::scouting::ScoutBuilder,
         handlers::{Callback, CallbackParameter, DefaultHandler},
     },
-    net::runtime::{orchestrator::Loop, Runtime},
     Config,
 };
 
@@ -150,57 +156,66 @@ pub(crate) fn _scout(
     config: Config,
     callback: Callback<Hello>,
 ) -> ZResult<ScoutInner> {
-    tracing::trace!("scout({}, {})", what, &config);
-    let default_addr = SocketAddr::from(zenoh_config::defaults::scouting::multicast::address);
-    let addr = config
-        .0
-        .scouting
-        .multicast
-        .address()
-        .unwrap_or(default_addr);
-    let default_multicast_ttl = zenoh_config::defaults::scouting::multicast::ttl;
-    let multicast_ttl = config
-        .0
-        .scouting
-        .multicast
-        .ttl
-        .unwrap_or(default_multicast_ttl);
-    let ifaces = config.0.scouting.multicast.interface().as_ref().map_or(
-        zenoh_config::defaults::scouting::multicast::interface,
-        |s| s.as_ref(),
-    );
-    let ifaces = Runtime::get_interfaces(ifaces);
-    if !ifaces.is_empty() {
-        let sockets: Vec<UdpSocket> = ifaces
-            .into_iter()
-            .filter_map(|iface| Runtime::bind_ucast_port(iface, multicast_ttl).ok())
-            .collect();
-        if !sockets.is_empty() {
-            let cancellation_token = TerminatableTask::create_cancellation_token();
-            let cancellation_token_clone = cancellation_token.clone();
-            let task = TerminatableTask::spawn(
-                zenoh_runtime::ZRuntime::Acceptor,
-                async move {
-                    let scout = Runtime::scout(&sockets, what, &addr, move |hello| {
-                        let callback = callback.clone();
-                        async move {
-                            callback.call(hello.into());
-                            Loop::Continue
-                        }
-                    });
-                    tokio::select! {
-                        _ = scout => {},
-                        _ = cancellation_token_clone.cancelled() => { tracing::trace!("stop scout({}, {})", what, &config); },
-                    }
-                },
-                cancellation_token.clone(),
-            );
-            return Ok(ScoutInner {
-                scout_task: Some(task),
-            });
-        }
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        let _ = (what, config, callback);
+        bail!("scouting is not supported on wasm32-unknown-unknown; configure explicit ws connect endpoints")
     }
-    Ok(ScoutInner { scout_task: None })
+
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    {
+        tracing::trace!("scout({}, {})", what, &config);
+        let default_addr = SocketAddr::from(zenoh_config::defaults::scouting::multicast::address);
+        let addr = config
+            .0
+            .scouting
+            .multicast
+            .address()
+            .unwrap_or(default_addr);
+        let default_multicast_ttl = zenoh_config::defaults::scouting::multicast::ttl;
+        let multicast_ttl = config
+            .0
+            .scouting
+            .multicast
+            .ttl
+            .unwrap_or(default_multicast_ttl);
+        let ifaces = config.0.scouting.multicast.interface().as_ref().map_or(
+            zenoh_config::defaults::scouting::multicast::interface,
+            |s| s.as_ref(),
+        );
+        let ifaces = Runtime::get_interfaces(ifaces);
+        if !ifaces.is_empty() {
+            let sockets: Vec<UdpSocket> = ifaces
+                .into_iter()
+                .filter_map(|iface| Runtime::bind_ucast_port(iface, multicast_ttl).ok())
+                .collect();
+            if !sockets.is_empty() {
+                let cancellation_token = TerminatableTask::create_cancellation_token();
+                let cancellation_token_clone = cancellation_token.clone();
+                let task = TerminatableTask::spawn(
+                    zenoh_runtime::ZRuntime::Acceptor,
+                    async move {
+                        let scout = Runtime::scout(&sockets, what, &addr, move |hello| {
+                            let callback = callback.clone();
+                            async move {
+                                callback.call(hello.into());
+                                Loop::Continue
+                            }
+                        });
+                        tokio::select! {
+                            _ = scout => {},
+                            _ = cancellation_token_clone.cancelled() => { tracing::trace!("stop scout({}, {})", what, &config); },
+                        }
+                    },
+                    cancellation_token.clone(),
+                );
+                return Ok(ScoutInner {
+                    scout_task: Some(task),
+                });
+            }
+        }
+        Ok(ScoutInner { scout_task: None })
+    }
 }
 
 /// Scout for routers and/or peers.

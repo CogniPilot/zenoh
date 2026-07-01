@@ -29,8 +29,8 @@ tracing-instrument = ["zenoh-runtime/tracing-instrument"]
 
 [dependencies]
 futures = { workspace = true }
-tokio = { workspace = true, features = ["default", "sync"] }
-tokio-util = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tokio-util = { workspace = true, default-features = false, features = ["rt"] }
 tracing = { workspace = true }
 zenoh-core = { workspace = true }
 zenoh-runtime = { workspace = true }

@@ -17,6 +17,7 @@ use std::net::{IpAddr, Ipv6Addr};
 use lazy_static::lazy_static;
 #[cfg(unix)]
 use pnet_datalink::NetworkInterface;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tokio::net::{TcpSocket, UdpSocket};
 use zenoh_core::zconfigurable;
 #[cfg(unix)]
@@ -131,6 +132,12 @@ pub fn get_interface(name: &str) -> ZResult<Option<IpAddr>> {
             Ok(None)
         }
     }
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        let _ = name;
+        Ok(None)
+    }
 }
 
 /// Get the network interface to bind the UDP sending port to when not specified by user
@@ -155,6 +162,10 @@ pub fn get_multicast_interfaces() -> Vec<IpAddr> {
     {
         // On windows, bind to [::], the system will select the default interface
         vec![IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)]
+    }
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        vec![]
     }
 }
 
@@ -205,6 +216,12 @@ pub fn get_local_addresses(interface: Option<&str>) -> ZResult<Vec<IpAddr>> {
             Ok(result)
         }
     }
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        let _ = interface;
+        Ok(vec![])
+    }
 }
 
 /// Get the network interface to bind the UDP sending port to when not specified by user
@@ -227,6 +244,10 @@ pub fn get_unicast_addresses_of_multicast_interfaces() -> Vec<IpAddr> {
     #[cfg(windows)]
     {
         // On windows, bind to [::] or [::], the system will select the default interface
+        vec![]
+    }
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
         vec![]
     }
 }
@@ -283,6 +304,11 @@ pub fn get_unicast_addresses_of_interface(name: &str) -> ZResult<Vec<IpAddr>> {
             Ok(addrs)
         }
     }
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        bail!("Network interfaces are not available on wasm32-unknown-unknown: {name}")
+    }
 }
 
 pub fn get_index_of_interface(addr: IpAddr) -> ZResult<u32> {
@@ -318,6 +344,11 @@ pub fn get_index_of_interface(addr: IpAddr) -> ZResult<u32> {
             }
             bail!("No interface found with address {addr}")
         }
+    }
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        bail!("Network interfaces are not available on wasm32-unknown-unknown: {addr}")
     }
 }
 
@@ -372,6 +403,12 @@ pub fn get_interface_names_by_addr(addr: IpAddr) -> ZResult<Vec<String>> {
             }
         }
         Ok(result)
+    }
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    {
+        let _ = addr;
+        Ok(vec![])
     }
 }
 

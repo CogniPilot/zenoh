@@ -19,18 +19,23 @@ tracing-instrument = []
 lazy_static = { workspace = true }
 ron = { workspace = true }
 serde = { workspace = true }
-tokio = { workspace = true, features = [
-  "fs",
-  "io-util",
-  "macros",
-  "net",
-  "rt-multi-thread",
-  "sync",
-  "time",
-] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tracing = { workspace = true }
 zenoh-macros = { workspace = true }
 zenoh-result = { workspace = true, features = ["std"] }
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+tokio = { workspace = true, features = [
+  "fs",
+  "io-util",
+  "net",
+  "rt-multi-thread",
+] }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+js-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = ["Window", "WorkerGlobalScope"] }
 
 [package.metadata.cargo-machete]
 ignored = ["ron"]
