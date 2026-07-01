@@ -20,7 +20,9 @@ pub fn init_panic_hook() {
 
 #[wasm_bindgen]
 pub fn version() -> String {
-    env!("CARGO_PKG_VERSION").to_owned()
+    option_env!("ZENOH_WASM_NPM_VERSION")
+        .unwrap_or(env!("CARGO_PKG_VERSION"))
+        .to_owned()
 }
 
 #[wasm_bindgen]

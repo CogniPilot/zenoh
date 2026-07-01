@@ -37,9 +37,29 @@ const session = await openWithConfig(`{
 
 This package is browser-oriented and uses `wasm32-unknown-unknown`. Use async APIs only. Blocking `.wait()` APIs, multicast scouting, listeners, dynamic plugins, and low-latency transport are not supported in the browser wasm build.
 
-## Releasing
+## Releasing From CI
 
-Build package artifacts locally:
+The `Release zenoh-wasm npm` workflow publishes npm packages only after its release checks pass for a tag that matches `zenoh-wasm-npm-v<version>`.
+
+Configure these repository settings before publishing:
+
+- Secret `NPM_TOKEN`: npm automation token with publish access.
+- Variable `NPM_PACKAGE_NAME`: npm package name, for example `@cognipilot/zenoh-wasm`.
+- Variable `NPM_TAG`: npm dist-tag, for example `next`.
+- Variable `NPM_RELEASE_BRANCH`: release branch name. Defaults to `cognipilot/zenoh-wasm-npm`.
+
+Create a release tag on the release branch:
+
+```sh
+git switch cognipilot/zenoh-wasm-npm
+git tag -a zenoh-wasm-npm-v1.9.0-wasm.0 -m 'zenoh wasm npm 1.9.0-wasm.0'
+git push cognipilot cognipilot/zenoh-wasm-npm
+git push cognipilot zenoh-wasm-npm-v1.9.0-wasm.0
+```
+
+The version in the tag becomes the npm package version. The builder also passes that version into the wasm module, so `version()` reports the published npm version.
+
+Build package artifacts locally without publishing:
 
 ```sh
 NPM_PACKAGE_NAME='@cognipilot/zenoh-wasm' \
@@ -48,10 +68,8 @@ NPM_REPOSITORY_URL='git+https://github.com/CogniPilot/zenoh.git' \
 node bindings/zenoh-wasm/scripts/build-package.mjs
 ```
 
-Then publish from the generated package directory:
+To publish manually from the generated package directory:
 
 ```sh
-npm publish bindings/zenoh-wasm/pkg --tag next --access public
+npm publish bindings/zenoh-wasm/pkg --tag next --access public --provenance
 ```
-
-The GitHub Actions workflow `Publish zenoh-wasm npm` uses the same builder. Set `NPM_TOKEN` as a repository secret. The package name can come from the workflow input, `vars.NPM_PACKAGE_NAME`, or the neutral default `zenoh-wasm`.

@@ -15,6 +15,7 @@ const packageVersion =
 const repositoryUrl =
   process.env.NPM_REPOSITORY_URL ||
   `git+${workspaceField("repository").replace(/\.git$/, "")}.git`;
+process.env.ZENOH_WASM_NPM_VERSION = packageVersion;
 
 run("wasm-pack", [
   "build",
@@ -34,7 +35,10 @@ copyFileSync(resolve(repoRoot, "LICENSE"), resolve(pkgDir, "LICENSE"));
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: repoRoot,
-    env: process.env,
+    env: {
+      ...process.env,
+      ZENOH_WASM_NPM_VERSION: packageVersion,
+    },
     stdio: "inherit",
   });
   if (result.status !== 0) {

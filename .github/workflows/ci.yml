@@ -580,6 +580,7 @@ jobs:
     needs:
       [
         check_rust,
+        check_wasm,
         check,
         test,
         test_unstable,

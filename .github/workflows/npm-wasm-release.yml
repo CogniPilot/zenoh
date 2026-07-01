@@ -1,0 +1,112 @@
+#
+# Copyright (c) 2026 ZettaScale Technology
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License 2.0 which is available at
+# http://www.eclipse.org/legal/epl-2.0, or the Apache License, Version 2.0
+# which is available at https://www.apache.org/licenses/LICENSE-2.0.
+#
+# SPDX-License-Identifier: EPL-2.0 OR Apache-2.0
+#
+name: Release zenoh-wasm npm
+
+on:
+  push:
+    tags:
+      - "zenoh-wasm-npm-v*"
+
+env:
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_PROFILE_DEV_DEBUG: false
+  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  NPM_PACKAGE_NAME: ${{ vars.NPM_PACKAGE_NAME || 'zenoh-wasm' }}
+  NPM_REPOSITORY_URL: ${{ vars.NPM_REPOSITORY_URL || format('git+{0}/{1}.git', github.server_url, github.repository) }}
+  NPM_RELEASE_BRANCH: ${{ vars.NPM_RELEASE_BRANCH || 'cognipilot/zenoh-wasm-npm' }}
+  NPM_TAG: ${{ vars.NPM_TAG || 'next' }}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  check_and_publish:
+    name: Check and publish npm package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clone this repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive release version from tag
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#zenoh-wasm-npm-v}"
+          if [[ -z "$version" || "$version" == "$GITHUB_REF_NAME" ]]; then
+            echo "::error::Release tags must match zenoh-wasm-npm-v<version>"
+            exit 1
+          fi
+          echo "NPM_PACKAGE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Verify tag is on release branch
+        shell: bash
+        run: |
+          git fetch --no-tags origin "+refs/heads/${NPM_RELEASE_BRANCH}:refs/remotes/origin/${NPM_RELEASE_BRANCH}"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "refs/remotes/origin/${NPM_RELEASE_BRANCH}"; then
+            echo "::error::Tag $GITHUB_REF_NAME does not point to a commit on ${NPM_RELEASE_BRANCH}"
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install Rust toolchain components
+        run: |
+          toolchain="$(sed -n 's/channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain"
+          rustup component add rustfmt --toolchain "$toolchain"
+          rustup target add wasm32-unknown-unknown --toolchain "$toolchain"
+
+      - name: Check formatting
+        run: |
+          cargo fmt --check
+          cargo fmt --check --manifest-path bindings/zenoh-wasm/Cargo.toml
+
+      - name: Check zenoh wasm WebSocket transport
+        run: cargo check -p zenoh --target wasm32-unknown-unknown --no-default-features --features transport_ws,unstable,internal
+
+      - name: Check zenoh-wasm bindings
+        run: cargo check --manifest-path bindings/zenoh-wasm/Cargo.toml --target wasm32-unknown-unknown --release
+
+      - name: Check package builder
+        run: node --check bindings/zenoh-wasm/scripts/build-package.mjs
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Build npm package
+        run: node bindings/zenoh-wasm/scripts/build-package.mjs
+
+      - name: Pack npm package
+        run: npm pack bindings/zenoh-wasm/pkg --pack-destination /tmp --dry-run
+
+      - name: Verify npm token is configured
+        shell: bash
+        run: |
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "::error::Set the NPM_TOKEN repository secret before publishing"
+            exit 1
+          fi
+
+      - name: Publish npm package
+        shell: bash
+        run: |
+          access=()
+          if [[ "$NPM_PACKAGE_NAME" == @* ]]; then
+            access=(--access public)
+          fi
+          npm publish bindings/zenoh-wasm/pkg --tag "$NPM_TAG" --provenance "${access[@]}"
