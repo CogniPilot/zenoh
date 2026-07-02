@@ -305,13 +305,18 @@ impl TransportManager {
     }
 
     pub fn get_transports_multicast_blocking(&self) -> Vec<TransportMulticast> {
-        self.state
+        // wasm32-unknown-unknown is single-threaded and cannot block; the mutex
+        // is never contended there, so a non-blocking lock always succeeds.
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        let guard = self
+            .state
             .multicast
             .transports
-            .blocking_lock()
-            .values()
-            .map(|t| t.into())
-            .collect()
+            .try_lock()
+            .expect("uncontended transports lock on wasm");
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        let guard = self.state.multicast.transports.blocking_lock();
+        guard.values().map(|t| t.into()).collect()
     }
 
     pub(super) async fn del_transport_multicast(&self, locator: &Locator) -> ZResult<()> {

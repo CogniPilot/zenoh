@@ -33,9 +33,12 @@ tokio = { workspace = true, features = [
 ] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+futures-util = { workspace = true }
 js-sys = { workspace = true }
 wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
 web-sys = { workspace = true, features = ["Window", "WorkerGlobalScope"] }
+web-time = { workspace = true }
 
 [package.metadata.cargo-machete]
 ignored = ["ron"]

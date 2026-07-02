@@ -46,6 +46,8 @@ use wasm_bindgen::JsCast;
 use zenoh_macros::{GenericRuntimeParam, RegisterParam};
 use zenoh_result::ZResult as Result;
 
+pub mod time;
+
 pub const ZENOH_RUNTIME_ENV: &str = "ZENOH_RUNTIME";
 
 /// Available parameters to configure the ZRuntime.
@@ -91,9 +93,12 @@ impl RuntimeParam {
 
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     pub fn build(&self, _zrt: ZRuntime) -> Result<Runtime> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_time()
-            .build()?;
+        // NOTE: `.enable_time()` makes Tokio construct its time driver, whose
+        // `Driver::new` calls `std::time::Instant::now()` — unsupported on
+        // wasm32-unknown-unknown, so it panics/traps at runtime build. Tokio's
+        // time driver can't work on this target anyway (it doesn't use the
+        // browser clock), so we build without it.
+        let rt = tokio::runtime::Builder::new_current_thread().build()?;
         Ok(rt)
     }
 }
@@ -181,10 +186,30 @@ impl ZRuntime {
 
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            let _ = f;
-            panic!(
-                "Blocking Zenoh waits are not supported on wasm32-unknown-unknown; use `.await` instead"
+            // wasm32-unknown-unknown is single-threaded and cannot truly block.
+            // Many of Zenoh's "blocking" waits are futures that resolve in a
+            // single poll (e.g. reads of uncontended async locks). Poll once and
+            // return the value if it is ready; only panic if the future would
+            // genuinely have to await external progress.
+            use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+            const VTABLE: RawWakerVTable = RawWakerVTable::new(
+                |_| RawWaker::new(std::ptr::null(), &VTABLE),
+                |_| {},
+                |_| {},
+                |_| {},
             );
+            // SAFETY: the no-op waker never dereferences its data pointer.
+            let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
+            let mut cx = Context::from_waker(&waker);
+            let mut f = std::pin::pin!(f);
+            match f.as_mut().poll(&mut cx) {
+                Poll::Ready(r) => r,
+                Poll::Pending => panic!(
+                    "Blocking Zenoh waits are not supported on wasm32-unknown-unknown: \
+                     this future did not resolve synchronously"
+                ),
+            }
         }
     }
 }
@@ -308,9 +333,14 @@ fn start_wasm_runtime_driver(runtime: *const Runtime) {
     *callback.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         // The runtime is stored in a static OnceLock and is not dropped on wasm.
         let runtime = unsafe { &*runtime };
-        runtime.block_on(async {
-            tokio::task::yield_now().await;
-        });
+        // Only drive when this thread isn't already inside the runtime. Otherwise
+        // a re-entrant `block_on` panics with "Cannot start a runtime from within
+        // a runtime" — the outer `block_on` is already pumping tasks this turn.
+        if tokio::runtime::Handle::try_current().is_err() {
+            runtime.block_on(async {
+                tokio::task::yield_now().await;
+            });
+        }
 
         if let Some(callback) = callback_for_closure.as_ref().borrow().as_ref() {
             schedule(callback);

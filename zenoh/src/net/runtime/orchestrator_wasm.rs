@@ -161,7 +161,7 @@ impl Runtime {
         self.connect_peers(&peers, false).await?;
 
         if wait_scouting && !peers.is_empty() {
-            tokio::time::sleep(delay).await;
+            zenoh_runtime::time::sleep(delay).await;
         }
         Ok(())
     }
@@ -191,7 +191,7 @@ impl Runtime {
         Self::warn_scouting(scouting);
         self.connect_peers(&peers, false).await?;
 
-        tokio::time::sleep(delay).await;
+        zenoh_runtime::time::sleep(delay).await;
         Ok(())
     }
 
@@ -217,7 +217,7 @@ impl Runtime {
         if timeout.is_zero() {
             self.connect_peers_impl(peers, single_link).await
         } else {
-            match tokio::time::timeout(timeout, self.connect_peers_impl(peers, single_link)).await {
+            match zenoh_runtime::time::timeout(timeout, self.connect_peers_impl(peers, single_link)).await {
                 Ok(r) => r,
                 Err(_) => {
                     let e = zerror!("Unable to connect to any of {:?}. Timeout!", peers);
@@ -378,7 +378,7 @@ impl Runtime {
             cancellation_token: CancellationToken,
         ) -> Option<(EndPoint, ConnectionRetryPeriod)> {
             tokio::select! {
-                _ = tokio::time::sleep(wait_time) => {
+                _ = zenoh_runtime::time::sleep(wait_time) => {
                     Some((peer, period))
                 }
                 _ = cancellation_token.cancelled() => {

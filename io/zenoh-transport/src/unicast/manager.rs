@@ -549,6 +549,10 @@ impl TransportManager {
         link: Link,
     ) -> ZResult<()> {
         if let Some(callback) = transport.get_callback() {
+            // wasm32-unknown-unknown has no blocking thread pool; run inline.
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            callback.new_link(link);
+            #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
             tokio::task::spawn_blocking(move || {
                 callback.new_link(link);
             })
@@ -881,7 +885,7 @@ impl TransportManager {
         };
 
         // Open the link
-        tokio::time::timeout(self.config.unicast.open_timeout, async {
+        zenoh_runtime::time::timeout(self.config.unicast.open_timeout, async {
             match manager.new_link(endpoint.clone()).await {
                 Ok(link) => {
                     super::establishment::open::open_link(endpoint, link, self, expected_zid).await
@@ -907,10 +911,18 @@ impl TransportManager {
     }
 
     pub fn get_transports_unicast_blocking(&self) -> Vec<TransportUnicast> {
-        self.state
+        // wasm32-unknown-unknown is single-threaded and cannot block; the mutex
+        // is never contended there, so a non-blocking lock always succeeds.
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        let guard = self
+            .state
             .unicast
             .transports
-            .blocking_lock()
+            .try_lock()
+            .expect("uncontended transports lock on wasm");
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        let guard = self.state.unicast.transports.blocking_lock();
+        guard
             .values()
             .map(|t| TransportUnicast(Arc::downgrade(t)))
             .collect()
@@ -948,7 +960,7 @@ impl TransportManager {
         let c_manager = self.clone();
         self.task_controller
             .spawn_with_rt(zenoh_runtime::ZRuntime::Acceptor, async move {
-                if tokio::time::timeout(
+                if zenoh_runtime::time::timeout(
                     c_manager.config.unicast.accept_timeout,
                     super::establishment::accept::accept_link(link, &c_manager),
                 )
