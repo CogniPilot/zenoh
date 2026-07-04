@@ -12,7 +12,8 @@
     ".": {
       "types": "./zenoh_wasm.d.ts",
       "default": "./zenoh_wasm.js"
-    }
+    },
+    "./zenoh_wasm_bg.wasm": "./zenoh_wasm_bg.wasm"
   },
   "files": [
     "zenoh_wasm.js",
