@@ -172,7 +172,7 @@ impl TransportUnicastUniversal {
             let block_first_notifier =
                 transport_link.block_first_notifiers[priority as usize].clone();
             let msg = NetworkMessageExt::to_owned(&msg);
-            zenoh_runtime::ZRuntime::Net.spawn_blocking(move || {
+            let push = move || {
                 let msg = msg.as_ref();
                 if let Ok(pushed) = pipeline.push_network_message(msg) {
                     transport.handle_push_result(
@@ -183,7 +183,12 @@ impl TransportUnicastUniversal {
                     );
                 }
                 let _ = block_first_notifier.notify();
-            });
+            };
+            // wasm32-unknown-unknown has no blocking thread pool; run inline.
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            push();
+            #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+            zenoh_runtime::ZRuntime::Net.spawn_blocking(push);
             // Message should be sent as it is blocking.
             return Ok(true);
         }

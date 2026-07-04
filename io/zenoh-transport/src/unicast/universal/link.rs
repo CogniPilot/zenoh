@@ -20,8 +20,13 @@ use std::{
         Arc, Mutex, OnceLock,
     },
     task::Poll,
-    time::{Duration, Instant},
+    time::Duration,
 };
+// `std::time::Instant` panics on wasm32-unknown-unknown; use the browser clock there.
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::time::Instant;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use web_time::Instant;
 
 use futures::{future::select_all, task::AtomicWaker};
 use tokio::task::JoinHandle;
@@ -340,7 +345,7 @@ async fn write_loop(
     // Drain the transmission pipeline and write remaining bytes on the wire
     let mut batches = pipeline.drain();
     for (mut b, _) in batches.drain(..) {
-        tokio::time::timeout(
+        zenoh_runtime::time::timeout(
             keep_alive_tracker.timeout(),
             link.send_batch(&mut b, write_priority),
         )
@@ -524,7 +529,7 @@ impl TimeoutTracker {
         let task = tokio::spawn(async move {
             let mut latest_reset = now;
             loop {
-                tokio::time::sleep_until((latest_reset + timeout).into()).await;
+                zenoh_runtime::time::sleep_until((latest_reset + timeout).into()).await;
                 let prev = latest_reset;
                 let Some(tracker) = tracker.upgrade() else {
                     break;
