@@ -217,7 +217,9 @@ impl Runtime {
         if timeout.is_zero() {
             self.connect_peers_impl(peers, single_link).await
         } else {
-            match zenoh_runtime::time::timeout(timeout, self.connect_peers_impl(peers, single_link)).await {
+            match zenoh_runtime::time::timeout(timeout, self.connect_peers_impl(peers, single_link))
+                .await
+            {
                 Ok(r) => r,
                 Err(_) => {
                     let e = zerror!("Unable to connect to any of {:?}. Timeout!", peers);
