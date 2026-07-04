@@ -4,6 +4,8 @@ name: PR Label Checklists Verify
 # For more information see https://docs.github.com/en/enterprise-cloud@latest/actions/reference/security/secure-use#mitigating-the-risks-of-untrusted-code-checkout
 on:
   pull_request_target:
+    branches-ignore:
+      - cognipilot/zenoh-wasm-npm
     types: [edited]
 
 jobs:

@@ -15,9 +15,11 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    branches-ignore:
+      - cognipilot/zenoh-wasm-npm
   pull_request:
-    branches: ["**"]
+    branches-ignore:
+      - cognipilot/zenoh-wasm-npm
 
 env:
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
